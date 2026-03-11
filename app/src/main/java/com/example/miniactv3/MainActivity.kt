@@ -11,6 +11,7 @@ import android.content.ServiceConnection
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -19,14 +20,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.app.ActivityCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.miniactv3.ui.theme.MiniActv3Theme
 
 class MainActivity : ComponentActivity() {
@@ -46,6 +50,9 @@ class MainActivity : ComponentActivity() {
             isBound = false
         }
     }
+
+    private var isStarted = false
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,15 +78,22 @@ class MainActivity : ComponentActivity() {
         setContent {
             MiniActv3Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    val currentCount by MyService.countState.collectAsStateWithLifecycle()
+
                     Column(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                         ) {
+                        Text(
+                            text = "Contador: $currentCount",
+                            style = MaterialTheme.typography.displayLarge
+                        )
                         Button(onClick = {
                             Intent(applicationContext, MyService::class.java).also {
                                 it.action = MyService.Actions.START.toString()
                                 startService(it)
+                                isStarted = true
                             }
                         }) {
                             Text("Start service")
@@ -88,6 +102,7 @@ class MainActivity : ComponentActivity() {
                             Intent(applicationContext, MyService::class.java).also {
                                 it.action = MyService.Actions.STOP.toString()
                                 startService(it)
+                                isStarted = false
                             }
                         }) {
                             Text("Stop service")
@@ -131,16 +146,41 @@ class MainActivity : ComponentActivity() {
 
 
     override fun onStart() {
+        Log.d("MAINacTIVITY", "OnStart")
         super.onStart()
         //bindService(serviceIntent, foreground, Context.BIND_AUTO_CREATE)
+
+    }
+
+    override fun onResume() {
+        Log.d("MAINacTIVITY", "OnResume")
+
+        super.onResume()
+        if (isStarted) {
+            Log.d("MainACtivity", "MOVE TO BACKGROUND")
+            Intent(this, MyService::class.java).also {
+                it.action = MyService.Actions.MOVE_BACKGROUND.toString()
+                startService(it)
+            }
+        }
+    }
+
+    override fun onPause() {
+        Log.d("MainACtivity", "OnPause")
+
+        if(isStarted) {
+            Intent(this, MyService::class.java).also {
+                it.action = MyService.Actions.MOVE_FOREGROUND.toString()
+                startService(it)
+            }
+        }
+        super.onPause()
+
     }
 
     override fun onStop() {
+        Log.d("MainACtivity", "OnStop")
         super.onStop()
-        if (foreGroundOnlyLocationServiceBound) {
-            unbindService(connection)
-            foreGroundOnlyLocationServiceBound = false
-        }
     }
 
     fun subscribeToLocationUpdates() {
