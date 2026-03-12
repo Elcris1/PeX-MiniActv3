@@ -22,16 +22,11 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.MiniActv3">
-        <service
-            android:name=".ForegroundLocationService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location" />
 
         <service android:name=".MyService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="dataSync"/>
+            android:foregroundServiceType="location"/>
 
         <activity
             android:name=".MainActivity"
