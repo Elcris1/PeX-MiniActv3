@@ -18,8 +18,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,29 +34,37 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.miniactv3.ui.theme.MiniActv3Theme
+import kotlinx.coroutines.flow.MutableStateFlow
 
 class MainActivity : ComponentActivity() {
 
-    private var boundService: ForegroundLocationService? = null
+    private var myService: MyService? = null
     private var isBound = false
-    var foreGroundOnlyLocationServiceBound: Boolean = false
 
     private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
-            val localBinder = binder as ForegroundLocationService.LocalBinder
-            boundService = localBinder.service
+        override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
+            val binder = service as MyService.LocalBinder
+            myService = binder.service
             isBound = true
         }
+
         override fun onServiceDisconnected(name: ComponentName?) {
-            boundService = null
             isBound = false
+            myService = null
         }
     }
-
     private var isStarted = false
+    private val CHANNEL_ID = "miniactv3_notification_channel"
+
+    private val permissions=arrayOf(
+        Manifest.permission.ACCESS_FINE_LOCATION,
+        Manifest.permission.ACCESS_COARSE_LOCATION,
+        Manifest.permission.POST_NOTIFICATIONS,
+    )
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -59,15 +72,16 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             ActivityCompat.requestPermissions(
                 this,
-                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                permissions,
                 0
             )
         }
 
+        //Create notification channel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O){
             val channel = NotificationChannel (
-                "running-channel",
-                "Running notifications",
+                CHANNEL_ID,
+                CHANNEL_ID,
                 NotificationManager.IMPORTANCE_HIGH
             )
 
@@ -78,40 +92,39 @@ class MainActivity : ComponentActivity() {
         setContent {
             MiniActv3Theme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    val currentCount by MyService.countState.collectAsStateWithLifecycle()
-
+                    val locations by MyService.locationsState.collectAsStateWithLifecycle()
                     Column(
                         modifier = Modifier.fillMaxSize().padding(innerPadding),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                         ) {
-                        Text(
-                            text = "Contador: $currentCount",
-                            style = MaterialTheme.typography.displayLarge
-                        )
+
                         Button(onClick = {
-                            Intent(applicationContext, MyService::class.java).also {
-                                it.action = MyService.Actions.START.toString()
-                                startService(it)
-                                isStarted = true
+                            if(isStarted) {
+                                stopMyService()
+                            } else {
+                                startService()
                             }
                         }) {
-                            Text("Start service")
+                            Text("Start/stop Service")
                         }
-                        Button(onClick = {
-                            Intent(applicationContext, MyService::class.java).also {
-                                it.action = MyService.Actions.STOP.toString()
-                                startService(it)
-                                isStarted = false
+
+                        Text("Ubicaciones recibidas:", style = MaterialTheme.typography.titleSmall)
+                        Card(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                            LazyColumn(
+                                modifier = Modifier.padding(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (locations.isEmpty()) {
+                                    item { Text("No hay localizaciones", color = MaterialTheme.colorScheme.outline) }
+                                }
+                                items(locations.reversed()) { log ->
+                                    Text(log, style = MaterialTheme.typography.bodySmall)
+                                    HorizontalDivider()
+                                }
                             }
-                        }) {
-                            Text("Stop service")
                         }
                     }
-                //Greeting(
-                        //name = "Android",
-                      //  modifier = Modifier.padding(innerPadding)
-                    //)
                 }
             }
         }
@@ -119,27 +132,24 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isBound) {
-            unbindService(connection)
-            isBound = false
+
+    }
+
+    private fun startService() {
+        //I could check if there is some permission here before starting the location updates
+        Intent(applicationContext, MyService::class.java).also {
+            it.action = MyService.Actions.START.toString()
+            startService(it)
+            isStarted = true
+
         }
     }
 
-    /** Llamado desde el botón "Iniciar servicio" */
-    private fun startAndBindService() {
-        Intent(this, ForegroundLocationService::class.java).also { intent ->
-            startService(intent)
-            bindService(intent, connection, Context.BIND_AUTO_CREATE)
-            //boundService.startLocationUpdates()
-        }
-    }
-
-    /** Llamado desde el botón "Parar servicio" */
     private fun stopMyService() {
-        if (isBound) {
-            unbindService(connection)
-            isBound = false
-            boundService = null
+        Intent(applicationContext, MyService::class.java).also {
+            it.action = MyService.Actions.STOP.toString()
+            startService(it)
+            isStarted = false
         }
     }
 
@@ -148,49 +158,39 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         Log.d("MAINacTIVITY", "OnStart")
         super.onStart()
-        //bindService(serviceIntent, foreground, Context.BIND_AUTO_CREATE)
+
+        Intent(this, MyService::class.java).also { intent ->
+            bindService(intent, connection, Context.BIND_AUTO_CREATE)
+        }
 
     }
 
     override fun onResume() {
         Log.d("MAINacTIVITY", "OnResume")
-
         super.onResume()
-        if (isStarted) {
-            Log.d("MainACtivity", "MOVE TO BACKGROUND")
-            Intent(this, MyService::class.java).also {
-                it.action = MyService.Actions.MOVE_BACKGROUND.toString()
-                startService(it)
-            }
-        }
+
     }
 
     override fun onPause() {
-        Log.d("MainACtivity", "OnPause")
-
-        if(isStarted) {
-            Intent(this, MyService::class.java).also {
-                it.action = MyService.Actions.MOVE_FOREGROUND.toString()
-                startService(it)
-            }
+        Log.d("MainACtivity", "OnPause $isBound")
+        if (isBound) {
+            Log.d("MainACtivity", "Unbinding service")
+            unbindService(connection) // Just disconnects the pipe; Service stays alive!
+            isBound = false
         }
-        super.onPause()
 
+        super.onPause()
     }
 
     override fun onStop() {
-        Log.d("MainACtivity", "OnStop")
+        Log.d("MainACtivity", "OnStop $isBound")
+        if (isBound) {
+            Log.d("MainACtivity", "Unbinding service")
+            unbindService(connection) // Just disconnects the pipe; Service stays alive!
+            isBound = false
+        }
         super.onStop()
     }
-
-    fun subscribeToLocationUpdates() {
-
-    }
-
-    fun unsubscribeToLocationUpdates() {
-
-    }
-
 
 }
 
